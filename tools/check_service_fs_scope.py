@@ -389,6 +389,8 @@ def main(argv: list[str]) -> int:
                 _print_text_report(result)
                 if result.get("status") == "not-found":
                     print(f"ERROR: service not found: {service}", file=sys.stderr)
+            except FileNotFoundError:
+                raise
             except subprocess.TimeoutExpired:
                 any_error = True
                 error_result = {"service": service, "status": "error", "error": f"systemctl timed out after {args.timeout}s"}
@@ -415,9 +417,13 @@ def main(argv: list[str]) -> int:
         if any_error:
             return 1
         return 0
-    except FileNotFoundError:
-        print("ERROR: systemctl not found in PATH", file=sys.stderr)
-        return 127
+    except FileNotFoundError as exc:
+        missing = os.path.basename(getattr(exc, "filename", "") or "")
+        if missing == "systemctl":
+            print("ERROR: systemctl not found in PATH", file=sys.stderr)
+            return 127
+        print(f"ERROR: file not found: {getattr(exc, 'filename', '')}", file=sys.stderr)
+        return 1
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -425,4 +431,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

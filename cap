@@ -1,0 +1,6 @@
+cap_dac_override
+cap_dac_read_search
+cap_perfmon
+cap_bpf
+cap_checkpoint_restore
+

@@ -116,3 +116,72 @@
 
 - “文件路径注入检查”可由工具提供结构化证据，减少人工翻看 unit 文件/配置的成本。
 - 输出为派生结果，仍建议与 unit 文件评审、运行时验证结合使用。
+
+## 2025-12-22T17:27:16+08:00
+
+### 修改目的
+
+- 新增 deb 包二进制权限检查工具：从包名列表读取已安装 deb 包，枚举其可执行文件并检查 capabilities 与 setuid/setgid（S 位），输出存在 Cap 或 S 位的二进制及其所属包。
+
+### 修改范围
+
+- 新增 `tools/check_deb_binaries_privilege.py`
+- 新增 `.codex/plan/deb二进制cap与s位检查工具.md`
+- 更新 `doc/architecture.md`
+- 更新 `doc/changelog.md`
+
+### 修改内容
+
+- 使用 `dpkg-query -L <package>` 获取包内文件列表，过滤出可执行常规文件。
+- 使用 `getcap` 获取可执行文件 capabilities；使用 `stat` 检测 `setuid/setgid` 位。
+- 输出仅包含“有 capabilities 或 S 位”的二进制路径与所属包；支持 JSON 输出（含 `results/summary`）。
+
+### 对整体项目的影响
+
+- “deb 包二进制 Cap/S 位检查”可通过工具产出结构化证据，便于在 CD/交付检查或门禁脚本中复用。
+- 工具依赖运行环境已安装对应包；若需要对未安装的 `.deb` 文件离线分析，需要单独扩展实现。
+
+## 2025-12-22T17:37:19+08:00
+
+### 修改目的
+
+- 改进工具错误处理：区分“命令不存在”和“输入文件不存在”，避免误导性报错，并统一缺少命令时返回退出码 `127`。
+
+### 修改范围
+
+- 更新 `tools/check_service_cap.py`
+- 更新 `tools/check_service_fs_scope.py`
+- 更新 `tools/check_deb_binaries_privilege.py`
+- 更新 `doc/changelog.md`
+
+### 修改内容
+
+- 缺少 `systemctl` / `dpkg-query` / `getcap` 时返回 `127`，并输出明确错误信息。
+- 缺少输入文件（如 `--services-file` / `--packages-file` / `--expected-caps`）时返回 `1`，并输出 `file not found`。
+
+### 对整体项目的影响
+
+- 提升工具在 CI/CD 脚本中的可诊断性与一致性，减少因不可见环境差异导致的排障成本。
+
+## 2025-12-22T17:52:52+08:00
+
+### 修改目的
+
+- 新增 polkit actionid 隐式授权检查工具：批量执行 `pkaction -a <actionid> -v`，当 `implicit any/inactive/active` 命中 `yes/auth_self/auth_self_keep` 时输出 actionid、所属包与配置。
+
+### 修改范围
+
+- 新增 `tools/check_polkit_action_implicit.py`
+- 新增 `.codex/plan/polkit-actionid隐式授权检查工具.md`
+- 更新 `doc/architecture.md`
+- 更新 `doc/changelog.md`
+
+### 修改内容
+
+- 解析 `pkaction -v` 输出中的 `implicit any` / `implicit inactive` / `implicit active` 字段并判定风险值。
+- 通过扫描 `*.policy` 文件定位 actionid 来源，使用 `dpkg-query -S` 反查所属包。
+- 支持 `--actions-file`（每行一个 actionid）、`--json` 输出与 `results/summary` 汇总。
+
+### 对整体项目的影响
+
+- “Polkit 配置合规检查”可由工具输出结构化证据，便于门禁/交付环节自动化筛查需要明道云登记的 actionid。

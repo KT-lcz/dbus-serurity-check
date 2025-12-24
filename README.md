@@ -4,13 +4,16 @@
 
 - 检查清单：`DBus 安全检查-检查清单.md`
 - 架构设计：`doc/architecture.md`
+- AI 检查架构：`doc/ai-check-architecture.md`
 - 变更记录：`doc/changelog.md`
 - 工具脚本：`tools/*.py`
+- 提示词模板：`prompts/*.md`
 
 ## 环境要求
 
 - Python：`3.10+`（脚本使用了 `X | None` 等语法）
 - 系统：建议 Debian/Ubuntu + systemd（脚本依赖 `systemctl/busctl` 与 `dpkg-query`）
+- AI 检查工具：需要可用的 `codex` CLI
 - 命令依赖（按需）：
   - `systemctl`：systemd service 检查
   - `busctl`：D-Bus system bus introspection（会连接 system bus，且默认允许 auto-start）
@@ -445,6 +448,74 @@ python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt
 - `2`：存在 `not-found`（仅在 `--services-file` 模式下）
 - `1`：其他错误
 - `127`：缺少外部命令（如 `dpkg-query`/`busctl`）
+
+### 6) `tools/dbus_access_control_check.py`
+
+基于 Codex 的 DBus 方法访问控制检查。读取方法清单（JSON 数组或 JSONL），按条目生成提示词并执行 `codex exec`，输出每条结果与汇总。
+
+**用法**
+
+```bash
+python3 "./tools/dbus_access_control_check.py" --methods-file "./dbus_methods.json"
+python3 "./tools/dbus_access_control_check.py" --methods-file "./dbus_methods.jsonl" --output-dir "./out"
+```
+
+**输入（方法清单）**
+
+- JSON 数组或 JSONL
+- 每条记录需包含 `path/interface/method`（兼容 `dbus_path/object_path`、`dbus_interface`、`member` 命名）
+
+示例（JSON 数组）：
+
+```json
+[
+  {"path": "/com/example", "interface": "com.example.Service", "method": "Ping"}
+]
+```
+
+**输出**
+
+- `out/per_method/<id>.json`：单方法结果（校验通过的 AI 输出）
+- `out/raw/<id>.txt`：原始输出（stdout+stderr）
+- `out/summary.json`：汇总结果与错误清单
+
+**JSON 字段（校验要求）**
+
+- 顶层对象需包含：`input`、`summary`、`access_control`、`confidence`
+- `input` 需包含：`path`、`interface`、`method`
+
+**退出码**
+
+- `0`：执行完成（即使部分条目输出无效也会落盘错误信息）
+- `2`：方法清单或提示词文件不可用
+
+### 7) `tools/command_injection_check.py`
+
+基于 Codex 的命令注入检查。按 `check-type` 执行一次项目级静态检查，并输出结构化结果与元数据。
+
+**用法**
+
+```bash
+python3 "./tools/command_injection_check.py" --project-root "./" --check-type command_injection
+python3 "./tools/command_injection_check.py" --project-root "./" --check-type command_injection --output-dir "./out"
+```
+
+**输出**
+
+- `out/command_injection/result.json`：检查结果
+- `out/command_injection/raw.txt`：原始输出（stdout+stderr）
+- `out/command_injection/meta.json`：元数据（检查状态、提示词路径、生成时间等）
+
+**JSON 字段（校验要求）**
+
+- 顶层对象需包含：`check_type`、`summary`、`explicit_shell_exec`、`implicit_shell_exec`、`confidence`
+- `check_type` 允许为 `command_injection` 或 `unknown`
+
+**退出码**
+
+- `0`：检查成功
+- `1`：codex 执行失败或输出不合法
+- `2`：项目路径或提示词文件不可用
 
 ## CI/交付集成建议
 

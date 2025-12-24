@@ -407,3 +407,25 @@
 ### 对整体项目的影响
 
 - JSON 消费端可直接基于 schema 做解析与校验，减少“看代码猜字段”的对接成本；同时 summary 更精简，降低噪音与误解风险。
+
+## 2025-12-23T17:22:21+08:00
+
+### 修改目的
+
+- 为 `check_dbus_system_conf.py` 增加 `--only-method`，在需要“纯 methods 三元组”时提供更易消费的 JSON 输出形态。
+
+### 修改范围
+
+- 更新 `tools/check_dbus_system_conf.py`
+- 更新 `README.md`
+- 新增 `.codex/plan/dbus-systemd检查工具-only-method.md`
+- 更新 `doc/changelog.md`
+
+### 修改内容
+
+- 新增 `--only-method`：仅在 `--services-file + --json` 模式下生效，stdout 输出为 `[{dbus_path, interface, method}, ...]`。
+- 保持原有退出码语义；该参数仅影响 JSON 输出结构，不改变方法枚举/deny 排除逻辑。
+
+### 对整体项目的影响
+
+- 下游可直接消费方法三元组列表，无需解析嵌套 `service -> path -> interface -> method` 结构；但启用该参数时 JSON 顶层结构从 `{results, summary}` 变为数组，已有解析需按需适配。

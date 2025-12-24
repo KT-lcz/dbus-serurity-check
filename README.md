@@ -361,6 +361,7 @@ python3 "./tools/check_dbus_system_conf.py" --json --only-flagged
 ```bash
 python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt"
 python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt" --json --only-flagged
+python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt" --json --only-method > "./dbus_methods.json"
 ```
 
 **输出（JSON）**
@@ -401,6 +402,16 @@ python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt
   - `not_root`: int
   - `error`: int
   - `flagged`: int
+
+#### 仅输出 method（`--only-method`）
+
+当同时指定 `--services-file` 与 `--json` 且启用 `--only-method` 时，stdout 输出为 JSON 数组，每个元素仅包含：
+
+- `dbus_path`: string
+- `interface`: string
+- `method`: string
+
+该模式不输出 service/包/状态/summary；若输入包含多个 service，将输出所有 method 三元组并集且不携带归属信息。
 
 **状态（`results[].status`）**
 

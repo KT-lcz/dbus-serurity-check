@@ -177,6 +177,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Only include flagged records (and errors) in JSON results.",
     )
     parser.add_argument(
+        "--only-method",
+        action="store_true",
+        help="In --services-file + --json mode, output only method triplets (dbus_path/interface/method).",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=5.0,
@@ -347,6 +352,29 @@ def _build_service_summary(results: list[dict[str, Any]]) -> dict[str, int]:
     return summary
 
 
+def _flatten_method_triplets(results: list[dict[str, Any]]) -> list[dict[str, str]]:
+    triplets: set[tuple[str, str, str]] = set()
+    for result in results:
+        methods = result.get("methods") or {}
+        if not isinstance(methods, dict):
+            continue
+        for object_path, interfaces in methods.items():
+            if not isinstance(interfaces, dict):
+                continue
+            for interface_name, method_names in interfaces.items():
+                if not method_names:
+                    continue
+                for method_name in method_names:
+                    if not method_name:
+                        continue
+                    triplets.add((str(object_path), str(interface_name), str(method_name)))
+
+    return [
+        {"dbus_path": dbus_path, "interface": interface, "method": method}
+        for dbus_path, interface, method in sorted(triplets)
+    ]
+
+
 def _print_service_finding(result: dict[str, Any]) -> None:
     print(f"Service: {result['service']}")
     print(f"Status: {result.get('status') or '(unknown)'}")
@@ -387,6 +415,12 @@ def main(argv: list[str]) -> int:
     args = _parse_args(argv)
 
     try:
+        # --only-method 仅定义在 services-file 的 JSON 输出场景，避免语义歧义。
+        if args.only_method and not args.json:
+            raise ValueError("--only-method requires --json")
+        if args.only_method and not args.services_file:
+            raise ValueError("--only-method requires --services-file")
+
         conf_files, missing_dirs = _iter_conf_files([args.etc_dir, args.usr_dir])
         if missing_dirs and not conf_files:
             raise ValueError("no .conf files found; directories not found: " + ", ".join(missing_dirs))
@@ -491,10 +525,13 @@ def main(argv: list[str]) -> int:
                 ]
 
             if args.json:
-                payload: dict[str, Any] = {"results": output_results, "summary": summary}
-                if missing_dirs:
-                    payload["missing_dirs"] = missing_dirs
-                print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
+                if args.only_method:
+                    print(json.dumps(_flatten_method_triplets(output_results), indent=2, ensure_ascii=False, sort_keys=True))
+                else:
+                    payload: dict[str, Any] = {"results": output_results, "summary": summary}
+                    if missing_dirs:
+                        payload["missing_dirs"] = missing_dirs
+                    print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
             else:
                 printed = 0
                 for r in service_results:

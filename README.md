@@ -53,6 +53,8 @@ python3 "./tools/check_service_cap.py" --services-file "./services.txt" --json
 python3 "./tools/check_service_cap.py" --services-file "./services.txt" --expected-caps "./expected_caps.txt"
 ```
 
+可选参数：`--timeout` 指定 `systemctl` 超时秒数（默认 5）。
+
 **能力判定规则（EffectiveCapabilities）**
 
 - `User` 为空或为 `root`：使用 `CapabilityBoundingSet`
@@ -60,6 +62,7 @@ python3 "./tools/check_service_cap.py" --services-file "./services.txt" --expect
 
 **输出（文本）**
 
+- `LoadState`
 - `User/Group/SupplementaryGroups/Groups`
 - `CapabilityBoundingSet/AmbientCapabilities/EffectiveCapabilities`
 - `Rule`：表明使用了哪条判定规则
@@ -115,9 +118,11 @@ python3 "./tools/check_service_fs_scope.py" "dbus.service"
 python3 "./tools/check_service_fs_scope.py" --services-file "./services.txt" --json
 ```
 
+可选参数：`--timeout` 指定 `systemctl` 超时秒数（默认 5）。
+
 **输出（文本）关键字段**
 
-- 原始字段：`ProtectSystem/ProtectHome/PrivateTmp/NoNewPrivileges/*Paths/StateDirectory/RuntimeDirectory`
+- 原始字段：`LoadState/Status/ProtectSystem/ProtectHome/PrivateTmp/NoNewPrivileges/*Paths/StateDirectory/RuntimeDirectory`
 - 派生字段：
   - `ReadableScope`：
     - `All`：默认可读全局
@@ -127,6 +132,8 @@ python3 "./tools/check_service_fs_scope.py" --services-file "./services.txt" --j
     - `All except read-only roots ... and inaccessible paths ...; writable exceptions ...`：其余情况下的摘要
 - 提示字段：
   - `HintPreferStateRuntimeDirectory`：当 `*Paths` 中显式使用 `/var/lib`、`/var/run`、`/run` 时提示优先使用 `StateDirectory=`/`RuntimeDirectory=`
+  - `HintPaths`：触发提示的路径列表
+  - `HintMessage`：提示说明
 
 > 说明：该工具基于有限字段做“范围摘要”，不覆盖所有可能影响文件系统视图的 systemd 指令（例如 bind mounts 等），建议与 unit 文件评审结合使用。
 
@@ -200,10 +207,13 @@ python3 "./tools/check_deb_binaries_privilege.py" "openssh-server"
 python3 "./tools/check_deb_binaries_privilege.py" --packages-file "./packages.txt" --json
 ```
 
+可选参数：`--timeout` 指定命令超时秒数（默认 10）。
+
 **输出（文本）**
 
 - `Package: ...`
 - `Binary: <path> | Capabilities: ... | Setuid: ... | Setgid: ... | Mode: ...`
+- 单包且无命中时输出 `Findings: (none)`
 
 **输出（JSON）**
 
@@ -254,23 +264,33 @@ python3 "./tools/check_deb_binaries_privilege.py" --packages-file "./packages.tx
 - `implicit inactive`
 - `implicit active`
 
-命中值：`yes` / `auth_self` / `auth_self_keep`（大小写不敏感）
+风险分级（大小写不敏感）：
 
-若命中，则输出 actionid、对应 `.policy` 文件以及所属 deb 包（通过 `dpkg-query -S` 反查）。
+- `yes` → `high`
+- `auth_self` / `auth_self_keep` → `manual-review`
+- 其他有值 → `none`；全部缺省 → `unknown`
+
+当 `risk_level` 为 `high/manual-review` 时标记为 `flagged`，并输出 actionid、对应 `.policy` 文件以及所属 deb 包（通过 `dpkg-query -S` 反查）。
 
 **用法**
 
 ```bash
 python3 "./tools/check_polkit_action_implicit.py" "org.freedesktop.packagekit.system-sources-refresh"
 python3 "./tools/check_polkit_action_implicit.py" --actions-file "./actionids.txt" --json
+python3 "./tools/check_polkit_action_implicit.py" --actions-file "./actionids.txt" --json --only-flagged
 ```
+
+可选参数：`--timeout` 指定命令超时秒数（默认 10）。
 
 **输出（文本）**
 
 - `ActionId`
 - `Packages`
 - `ImplicitAny/ImplicitInactive/ImplicitActive`
+- `RiskLevel`
+- `RiskFields`（每个字段的风险分级）
 - `PolicyFiles`（若可定位）
+- 单条且无命中时输出 `Findings: (none)`
 
 **输出（JSON）**
 
@@ -291,6 +311,11 @@ python3 "./tools/check_polkit_action_implicit.py" --actions-file "./actionids.tx
     - `implicit any`: boolean
     - `implicit inactive`: boolean
     - `implicit active`: boolean
+  - `risk_level`: string（`high` / `manual-review` / `none` / `unknown`，仅当 `status=ok` 时存在）
+  - `risk_fields`: object（仅当 `status=ok` 时存在）
+    - `implicit any`: string（`high` / `manual-review` / `none` / `unknown`）
+    - `implicit inactive`: string（`high` / `manual-review` / `none` / `unknown`）
+    - `implicit active`: string（`high` / `manual-review` / `none` / `unknown`）
   - `policy_files`: string[]（仅当 `status=ok` 且 `flagged=true` 时存在）
   - `packages`: string[]（仅当 `status=ok` 且 `flagged=true` 时存在）
   - `error`: string（仅当 `status` 为 `not-found/error` 时存在）
@@ -300,6 +325,8 @@ python3 "./tools/check_polkit_action_implicit.py" --actions-file "./actionids.tx
   - `not_found`: int
   - `error`: int
   - `flagged`: int
+
+> 说明：`--only-flagged` 仅影响 JSON 输出的 `results` 内容；`summary` 仍为全量统计。文本输出在该模式下抑制非命中项与 summary。
 
 **退出码**
 
@@ -320,6 +347,8 @@ python3 "./tools/check_polkit_action_implicit.py" --actions-file "./actionids.tx
 python3 "./tools/check_dbus_system_conf.py"
 python3 "./tools/check_dbus_system_conf.py" --json --only-flagged
 ```
+
+可选参数：`--etc-dir`/`--usr-dir` 指定 system.d 扫描目录；`--timeout` 指定外部命令超时秒数（默认 5）。
 
 文本输出字段：
 
@@ -350,6 +379,8 @@ python3 "./tools/check_dbus_system_conf.py" --json --only-flagged
   - `flagged`: int
   - `findings`: int
 
+> 说明：`--only-flagged` 仅影响 JSON 输出的 `results` 内容；`summary` 仍为全量统计。
+
 #### 模式 B：root service 未被 default deny 覆盖的方法面（`--services-file`）
 
 读取 system bus name 列表（每行一个），并：
@@ -366,6 +397,8 @@ python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt
 python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt" --json --only-flagged
 python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt" --json --only-method > "./dbus_methods.json"
 ```
+
+> 说明：`--only-flagged` 仅影响 JSON 输出；文本输出仍按输入逐条打印。
 
 **输出（JSON）**
 
@@ -416,6 +449,8 @@ python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt
 
 该模式不输出 service/包/状态/summary；若输入包含多个 service，将输出所有 method 三元组并集且不携带归属信息。
 
+> 说明：`--only-method` 仅在 `--services-file` + `--json` 组合下生效，否则会报错。
+
 **状态（`results[].status`）**
 
 - `not-found`：未在 conf 中找到该 service 的 `allow own`
@@ -458,7 +493,10 @@ python3 "./tools/check_dbus_system_conf.py" --services-file "./dbus_services.txt
 ```bash
 python3 "./tools/dbus_access_control_check.py" --methods-file "./dbus_methods.json"
 python3 "./tools/dbus_access_control_check.py" --methods-file "./dbus_methods.jsonl" --output-dir "./out"
+python3 "./tools/dbus_access_control_check.py" --methods-file "./dbus_methods.json" --prompt-file "./prompts/dbus_method_access_control.md"
 ```
+
+可选参数：`--project-root`（默认 `.`）、`--codex-cmd`（默认 `codex exec --skip-git-repo-check`）、`--timeout`（默认 300 秒）、`--output-dir`、`--prompt-file`。
 
 **输入（方法清单）**
 
@@ -479,10 +517,40 @@ python3 "./tools/dbus_access_control_check.py" --methods-file "./dbus_methods.js
 - `out/raw/<id>.txt`：原始输出（stdout+stderr）
 - `out/summary.json`：汇总结果与错误清单
 
+当单方法执行失败或输出不合法时，`out/per_method/<id>.json` 为错误结构，包含 `input/error/raw_output`。
+
 **JSON 字段（校验要求）**
 
 - 顶层对象需包含：`input`、`summary`、`access_control`、`confidence`
 - `input` 需包含：`path`、`interface`、`method`
+
+**summary.json 字段（Schema）**
+
+- 顶层对象
+  - `generated_at`: string
+  - `project_root`: string
+  - `methods_file`: string
+  - `prompt_file`: string
+  - `results`: array
+  - `errors`: array
+  - `not_passed`: array
+- `results[]`
+  - `id`: string
+  - `input`: object
+  - `summary`: string（`pass` / `fail` / `unknown`）
+  - `output`: string（单方法 JSON 路径）
+  - `raw_output`: string
+- `errors[]`
+  - `id`: string
+  - `input`: object
+  - `error`: string
+  - `raw_output`: string
+- `not_passed[]`
+  - `id`: string
+  - `input`: object
+  - `status`: string（`fail` / `unknown` / `error`）
+  - `output`: string（仅 `status!=error` 时存在）
+  - `raw_output`: string
 
 **退出码**
 
@@ -498,7 +566,10 @@ python3 "./tools/dbus_access_control_check.py" --methods-file "./dbus_methods.js
 ```bash
 python3 "./tools/command_injection_check.py" --project-root "./" --check-type command_injection
 python3 "./tools/command_injection_check.py" --project-root "./" --check-type command_injection --output-dir "./out"
+python3 "./tools/command_injection_check.py" --project-root "./" --check-type command_injection --prompt-file "./prompts/command_injection_check.md"
 ```
+
+可选参数：`--codex-cmd`（默认 `codex exec --skip-git-repo-check`）、`--timeout`（默认 300 秒）、`--output-dir`、`--prompt-file`。
 
 **输出**
 
@@ -510,6 +581,16 @@ python3 "./tools/command_injection_check.py" --project-root "./" --check-type co
 
 - 顶层对象需包含：`check_type`、`summary`、`explicit_shell_exec`、`implicit_shell_exec`、`confidence`
 - `check_type` 允许为 `command_injection` 或 `unknown`
+
+**meta.json 字段（Schema）**
+
+- `check_type`: string
+- `project_root`: string
+- `prompt_file`: string
+- `generated_at`: string
+- `status`: string（`ok` / `error` / `invalid_output`）
+- `result`: string（仅 `status=ok` 时存在）
+- `raw_output`: string（仅 `status=ok` 时存在）
 
 **退出码**
 

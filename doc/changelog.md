@@ -1,5 +1,25 @@
 # 变更记录
 
+## 2025-12-24T16:40:22+08:00
+
+### 修改目的
+
+- 同步 README 与 tools 脚本最新参数/输出说明，避免文档与实现偏差。
+
+### 修改范围
+
+- 更新 `README.md`
+- 更新 `doc/changelog.md`
+- 新增 `.codex/plan/更新README工具参数输出.md`
+
+### 修改内容
+
+- README 补充 `--timeout`/`--prompt-file`/`--codex-cmd` 等参数说明，更新工具输出字段（`LoadState/Status`、polkit 风险分级、AI 检查汇总与 meta schema 等）。
+
+### 对整体项目的影响
+
+- 文档与工具行为保持一致，便于 CI/门禁对接；不影响现有脚本行为。
+
 ## 2025-12-24T16:04:22+08:00
 
 ### 修改目的

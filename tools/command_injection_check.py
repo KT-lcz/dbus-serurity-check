@@ -20,8 +20,46 @@ CHECK_TYPE_CONFIG = {
             "implicit_shell_exec",
             "confidence",
         },
+        "prompt_vars": {
+            "NON_CODE_RULES": (
+                "- Ignore matches in shell scripts (e.g., *.sh, *.bash, *.dash, *.zsh).\n"
+                "- Ignore matches in Makefiles (Makefile, makefile, *.mk).\n"
+                "- Ignore matches in comments or documentation/non-code text.\n"
+                "- If a finding is only supported by the above, treat it as not found."
+            )
+        },
     }
 }
+
+RG_CANDIDATE_PATTERNS = [
+    r"\bexec\.Command(?:Context)?\s*\(",
+    r"\bsyscall\.Exec\s*\(",
+    r"\bsyscall\.ForkExec\s*\(",
+    r"\bsubprocess\.(?:run|Popen|call|check_output)\s*\(",
+    r"\bos\.system\s*\(",
+    r"\b(?:system|popen|_popen)\s*\(",
+    r"\bposix_spawn(?:p)?\s*\(",
+    r"\bg_spawn_(?:async|sync|command_line_async|command_line_sync)\s*\(",
+]
+
+RG_EXCLUDE_GLOBS = [
+    "*.sh",
+    "*.bash",
+    "*.dash",
+    "*.zsh",
+    "Makefile",
+    "makefile",
+    "*.mk",
+    "*.md",
+    "*.txt",
+    "*.rst",
+    "*.adoc",
+    "*.asciidoc",
+    "doc/**",
+    "out/**",
+]
+
+MAX_PRE_SCAN_LINES = 200
 
 
 def load_prompt_template(path: Path) -> Template:
@@ -64,6 +102,38 @@ def validate_output(payload: Dict[str, Any], check_type: str) -> List[str]:
     return errors
 
 
+def build_pre_scan_hints(project_root: Path) -> str:
+    cmd = ["rg", "--line-number", "--no-heading", "--with-filename"]
+    for glob in RG_EXCLUDE_GLOBS:
+        cmd.extend(["--glob", f"!{glob}"])
+    for pattern in RG_CANDIDATE_PATTERNS:
+        cmd.extend(["-e", pattern])
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(project_root),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return "rg not available; pre-scan skipped."
+
+    if result.returncode not in (0, 1):
+        error_msg = result.stderr.strip() or result.stdout.strip()
+        if not error_msg:
+            error_msg = f"rg failed with code {result.returncode}"
+        return f"rg error: {error_msg}"
+
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    if not lines:
+        return "rg found no candidate lines."
+    if len(lines) > MAX_PRE_SCAN_LINES:
+        lines = lines[:MAX_PRE_SCAN_LINES]
+        lines.append("... (truncated)")
+    return "\n".join(lines)
+
+
 def write_json(path: Path, data: Dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -102,7 +172,9 @@ def main() -> int:
     meta_path = output_dir / "meta.json"
 
     template = load_prompt_template(prompt_file)
-    prompt = template.safe_substitute()
+    prompt_vars = dict(CHECK_TYPE_CONFIG[args.check_type].get("prompt_vars", {}))
+    prompt_vars["PRE_SCAN_HINTS"] = build_pre_scan_hints(project_root)
+    prompt = template.safe_substitute(prompt_vars)
     result = run_codex(args.codex_cmd, prompt, project_root, args.timeout)
     raw_path.write_text(result.stdout + result.stderr, encoding="utf-8")
 
